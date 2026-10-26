@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-26
+
 ### Added
 
 - First version: the Rituals Perfume Genie 2.0 diffusers of a Rituals
@@ -27,4 +29,5 @@ the notes of the version's GitHub Release.
   button succeeds, a lockout and a 429 pause kept across restarts.
 - A "Test the connection" button.
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-rituals/commits/main
+[Unreleased]: https://github.com/LM1LC3N7/gladys-rituals/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/LM1LC3N7/gladys-rituals/releases/tag/v0.1.1
