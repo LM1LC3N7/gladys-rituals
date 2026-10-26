@@ -32,6 +32,12 @@ up to date at the end of every milestone.
     a refilled cartridge (the use counter does not go back, per Rituals);
   - whether the token really lives an hour and whether `Date` is always sent;
   - what Rituals answers when the diffuser is offline and a command is sent.
+- [ ] **Next patch — review r4 leftovers** (2026-10-26): the merging guards of
+      repeated "off" clicks and the two confirmation checks are right but no
+      test catches each of them alone; and with on 0 ms, off 100 ms, on 200 ms
+      and an "off" applied late by Rituals, the diffuser ends off while the
+      last "on" was acknowledged "ok" (the safe side: the "off" wins, but the
+      acknowledgement should say so).
 - [ ] **Later** (ask on the forum first): the room size, the standby LED, the
       firmware update (ritualsgenie has them), the Genie 1.0 (older API).
 
