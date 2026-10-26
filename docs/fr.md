@@ -103,7 +103,9 @@ aucune nouvelle valeur jusqu’à son retour.
   avant le renouvellement du jeton) ne compte pas, et l’extinction part dès
   qu’elle le peut ; après un 429, pas avant le Retry-After de Rituals (dans
   les 30 minutes). Une deuxième extinction d’un diffuseur dont l’extinction
-  est en route la rejoint. Une extinction partie sans réponse est relue 5 et
+  est en route la rejoint si aucune autre commande de ce diffuseur n’est
+  partie entre-temps (sinon elle part elle-même), et n’est confirmée que par
+  une lecture faite après elle. Une extinction partie sans réponse est relue 5 et
   20 secondes plus tard (ce seul diffuseur, même pendant une pause) ; un diffuseur rallumé
   depuis l’application Rituals avant cette confirmation peut être réteint par
   un renvoi. Après un redémarrage, une extinction gardée part dès que la

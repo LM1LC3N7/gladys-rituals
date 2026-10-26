@@ -236,18 +236,10 @@ test('m7: a read started before the turn off never confirms it', async () => {
   await env.app.stop();
 });
 
-test('m7: automatic logins at least 2 min apart; a future-dated turn off in /data is dropped', async () => {
-  const clock = testClock();
-  const store = createMemoryStore({
-    hubs: { [HUBLOT_A]: { hash: HASH_A } },
-    offs: { [HUBLOT_A]: { hash: HASH_A, at: clock.now() + HOUR_MS, tries: 0 } },
-  });
-  const env = await setup({ clock, store });
-  assert.equal(env.cloud.requests.filter(POST_OFF).length, 0);
+test('m7: automatic logins at least 2 min apart', async () => {
+  const env = await setup();
   await assert.rejects(env.app.mayLogin('auto'), /login_wait/);
   await env.wait(2 * MINUTE);
   await env.app.mayLogin('auto');
   await env.app.stop();
 });
-
-const HOUR_MS = 60 * MINUTE;

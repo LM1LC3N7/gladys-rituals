@@ -93,6 +93,9 @@ PythonRitualsGenie`, no key, no client id, no signature. This integration
   off is in flight joins it; an unanswered turn off reads that diffuser
   alone at 5 s / 20 s, even during a pause. The CREDENTIALS pattern of the
   login (400/422) stays broad: to check with real answers (milestone 2).
+- **Review r3** (2026-10-26): a turn off joins the one in flight only when
+  no other command of the diffuser left or is in flight since; a turn off is
+  confirmed only by a read started after its last click.
 - **Turn off = protective** (fiche): out of the queue, cancels the waiting
   commands at once, logs in when needed (not when refused or locked), cuts a
   read silent for 1 s (not a failure), retried within 250 ms when it never

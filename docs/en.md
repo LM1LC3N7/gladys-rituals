@@ -94,7 +94,8 @@ value until it is back.
   token was renewed) does not count, and the turn off leaves as soon as it
   can; after a 429, not before the Retry-After of Rituals (within the 30
   minutes). A second turn off of a diffuser whose turn off is on its way joins
-  it. A turn off sent without an answer is read back 5 and 20 seconds later
+  it when no other command of that diffuser left meanwhile (otherwise it is
+  sent itself), and is confirmed only by a read made after it. A turn off sent without an answer is read back 5 and 20 seconds later
   (that diffuser alone, even during a pause); a diffuser turned on again from the
   Rituals app before that confirmation may be turned off again by a resend.
   After a restart, a kept turn off is sent as soon as the configuration is

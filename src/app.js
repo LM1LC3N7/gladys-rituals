@@ -1220,9 +1220,10 @@ export class RitualsApp {
     if (!session) throw this.fail(T.command.nothingSent('no_credentials'));
     if (this.refusedApplies()) throw this.fail(T.command.nothingSent('refused'));
     const running = this.offs.get(hublot);
-    if (t.offRun && running) {
-      // A turn off of this diffuser is on its way: this one joins it (the
-      // confirmation then needs a read made after this click).
+    if (t.offRun && running && t.sentSeq <= running.seq && t.inflight === undefined) {
+      // A turn off of this diffuser is on its way and no other command of it
+      // left since: this one joins it (the confirmation then needs a read
+      // made after this click). Otherwise it is sent itself.
       running.seq = seq;
       running.mono = started;
       const joined = await t.offRun;
@@ -1236,12 +1237,13 @@ export class RitualsApp {
     t.offHash = hash;
     if (t.inflight !== undefined) t.resendOff = seq;
     this.cutFrozenRead();
-    t.offRun = this.sendOff(session, hublot, started);
+    const run = this.sendOff(session, hublot, started);
+    t.offRun = run;
     let result;
     try {
-      result = await t.offRun;
+      result = await run;
     } finally {
-      t.offRun = undefined;
+      if (t.offRun === run) t.offRun = undefined;
     }
     this.armOffTimer();
     if (result.error) throw this.fail(result.error);
@@ -1378,8 +1380,10 @@ export class RitualsApp {
     this.saveState();
     if (confirm) {
       const hub = this.hubs.get(hublot) ?? { hublot, hash: off.hash, sensors: [] };
+      const readStart = this.monotonic();
       const ok = await this.confirm(session, hublot, hub, { field: 'on', value: false }, left);
-      if (ok && this.offs.get(hublot) === off) {
+      // Confirmed only by a read started after the last click it stands for.
+      if (ok && this.offs.get(hublot) === off && (off.mono === undefined || off.mono < readStart)) {
         this.offs.delete(hublot);
         this.logger.info(`rituals: ${hublot} turned off`);
         this.saveState();
@@ -1446,6 +1450,7 @@ export class RitualsApp {
       });
       const hub = parseHub(data);
       if (hub.reason || hub.hublot !== hublot || hub.on !== false) return false;
+      if (off.mono !== undefined && off.mono >= started) return false;
       if (this.offs.get(hublot) === off) {
         this.offs.delete(hublot);
         this.logger.info(`rituals: turn off of ${hublot} confirmed`);

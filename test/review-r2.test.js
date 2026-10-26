@@ -143,7 +143,10 @@ test('m4: the time of every read is in /data: a restart 30 s after a read waits 
   await env.wait(2 * MINUTE);
   assert.equal(cloud.count('GET account/hubs'), 2);
   await env.wait(30 * SECOND);
+  // A crash: nothing written at the stop, only what each read wrote before it.
+  store.failSave = true;
   await env.app.stop();
+  store.failSave = false;
   const again = await setup({ clock, cloud, store, config });
   await again.wait(90 * SECOND - SECOND);
   assert.equal(cloud.count('GET account/hubs'), 2);
