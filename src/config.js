@@ -1,45 +1,55 @@
 // -----------------------------------------------------------------------------
-// Integration configuration.
-//
-// The configuration is filled in by the user in Gladys, from the `config_schema`
-// declared in `gladys-assistant-integration.json`. The SDK fetches it for you
-// (`gladys.getConfig()`) and notifies you of every change through
-// `gladys.onConfigUpdated()`.
-//
-// This module only provides defaults and normalizes the received object, so the
-// rest of the code never has to deal with `undefined`.
+// The configuration of the manifest `config_schema`, normalized and checked.
 // -----------------------------------------------------------------------------
 
-// Defaults: they MUST stay consistent with the `default` values declared in the
-// `config_schema` of the manifest.
-export const DEFAULT_CONFIG = {
-  latitude: 48.8566, // Paris
-  longitude: 2.3522,
-  unit: 'celsius', // 'celsius' | 'fahrenheit'
-  // Seconds between two reads of the polled sensors. Gladys polls at most once
-  // a minute: slower intervals are applied by skipping polls (see
-  // createPoller in src/devices/index.js).
-  poll_frequency: 300,
-  // Reserved key (NOT in config_schema): because the manifest declares both
-  // 'local' and 'cloud' in its `transports` field, Gladys shows a standard
-  // "Prefer the local connection" toggle and sends the user's choice here.
-  // Read-only for the integration; defaults to true.
-  GLADYS_PREFER_LOCAL: true,
-};
+import { POLL_INTERVAL } from './constants.js';
+
+export const LANGUAGES = ['fr', 'en'];
+
+/** Defaults, mirrored by the manifest (checked by test/manifest.test.js). */
+export const DEFAULTS = { poll_interval: POLL_INTERVAL.default, language: 'fr' };
+
+// eslint-disable-next-line no-control-regex
+const CONTROL = /[\u0000-\u001f\u007f]/;
 
 /**
- * Merge the user config with the defaults.
- * @param {Record<string, unknown>} raw config returned by the SDK
+ * `{ email, password, pollInterval, language, problem }`. `problem`: why the
+ * account cannot be used (`missing_credentials`, `missing_email`,
+ * `missing_password`, `invalid_email`, `invalid_password`), undefined when it
+ * can: a password without an e-mail is never sent anywhere.
  */
 export function normalizeConfig(raw = {}) {
+  const email = typeof raw?.email === 'string' ? raw.email.trim() : '';
+  const password = typeof raw?.password === 'string' ? raw.password : '';
+  const interval = Number(raw?.poll_interval);
+  const language = String(raw?.language ?? DEFAULTS.language)
+    .trim()
+    .toLowerCase();
+  let problem;
+  if (email === '' && password === '') problem = 'missing_credentials';
+  else if (email === '') problem = 'missing_email';
+  else if (password === '') problem = 'missing_password';
+  else if (
+    email.length > 254 ||
+    CONTROL.test(email) ||
+    !/^[^\s@]+@[^\s@]+$/.test(email) ||
+    email.includes(' ')
+  ) {
+    problem = 'invalid_email';
+  } else if (password.length > 256 || CONTROL.test(password)) {
+    problem = 'invalid_password';
+  }
   return {
-    ...DEFAULT_CONFIG,
-    ...raw,
-    // Force the types: config may arrive as strings from a form.
-    latitude: Number(raw.latitude ?? DEFAULT_CONFIG.latitude),
-    longitude: Number(raw.longitude ?? DEFAULT_CONFIG.longitude),
-    poll_frequency: Number(raw.poll_frequency ?? DEFAULT_CONFIG.poll_frequency),
-    // The preference is a boolean; anything but an explicit false means true.
-    GLADYS_PREFER_LOCAL: raw.GLADYS_PREFER_LOCAL !== false,
+    email,
+    password,
+    problem,
+    pollInterval:
+      raw?.poll_interval !== '' &&
+      raw?.poll_interval !== null &&
+      raw?.poll_interval !== undefined &&
+      Number.isFinite(interval)
+        ? Math.round(Math.max(POLL_INTERVAL.min, Math.min(POLL_INTERVAL.max, interval)))
+        : DEFAULTS.poll_interval,
+    language: LANGUAGES.includes(language) ? language : DEFAULTS.language,
   };
 }

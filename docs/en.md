@@ -1,61 +1,116 @@
-# Demo Devices Template
+# Rituals Perfume Genie
 
-This is the user documentation of the integration. Gladys re-hosts this file
-and shows a permanent **Documentation** link to it in the Configuration screen
-(in the user's language, with English as the fallback) — it is when
-configuring that the user needs it most. Keep the short onboarding hints in
-the `section` blocks of the manifest `config_schema`; put the long
-step-by-step (screenshots, troubleshooting…) here.
+Brings the **Rituals Perfume Genie 2.0** diffusers of your Rituals account into
+Gladys, through the Rituals cloud (the one the Rituals app uses). Unofficial
+integration, not affiliated with Rituals.
+
+> This integration has never been tested with a real diffuser: it was written
+> from the `ritualsgenie` library (the one Home Assistant uses) and tested
+> against a simulated Rituals cloud. Feedback is welcome on the forum.
 
 ## What you get
 
-Six demo devices show up after installation: a weather station (real data
-from Open-Meteo), a switch, a dimmable light, a smart plug with power
-metering, a motion sensor and a camera.
+One Gladys device per diffuser of the account, named as in the Rituals app:
+
+| Feature                 | Type                | Notes                                                      |
+| ----------------------- | ------------------- | ---------------------------------------------------------- |
+| Diffusing               | switch, on/off      | Command: turn on, turn off.                                |
+| Perfume intensity (1-3) | fan speed, 1 to 3   | Command: 1 low, 2 medium, 3 high.                          |
+| Perfume level           | level, %            | An estimate from the use of the cartridge, as in the app.  |
+| Perfume                 | text                | The name of the perfume, or "No cartridge".                |
+| Wi-Fi signal            | signal, 0 to 5      | From the RSSI the diffuser reports.                        |
+| Battery, Charging       | battery %, charging | Portable Genie only; the level is rough (the app's icons). |
+
+A diffuser that Rituals reports offline gets an "unreachable" badge and no new
+value until it is back.
 
 ## Configuration
 
-1. Open the **Configuration** tab of the integration.
-2. Set the **latitude** and **longitude** the demo weather station should
-   observe (they default to Paris), and pick your temperature unit.
-   The **refresh interval** sets how often the weather station and the
-   plug's power are read: every 5 minutes by default, every minute at most.
-3. Save: the devices appear in the **Discovery** tab, ready to be added.
+1. In the **Configuration** tab, enter the **e-mail** and the **password** of
+   your Rituals account. The password is kept by Gladys in its database, never
+   shown again, and sent only to Rituals. A password without an e-mail is not
+   used.
+2. The **refresh interval** (5 minutes by default, 2 minutes to 1 hour) sets
+   how often the list of diffusers is read: one request each time, whatever the
+   number of diffusers. The sensors (level, perfume, Wi-Fi, battery) take one
+   request each, so they are read for one diffuser per read, at most every 30
+   minutes: Rituals has blocked clients that asked too often.
+3. Save, then add the diffusers from the **Discovery** tab.
+4. **Test the connection** shows the diffusers found. It reads the account
+   only when the interval has passed since the last read; otherwise it shows
+   the last read and when the next one comes.
 
-The **Prefer the local connection** toggle drives the demo plug: it reports
-the channel it actually uses as a badge (local or cloud), with an orange dot
-when it runs degraded (local refused, cloud fallback).
+## How it talks to Rituals
 
-## Actions
+- The integration logs in with the e-mail and the password and keeps the token
+  Rituals gives (valid about an hour) in memory only. It renews it a minute
+  before it expires, comparing with the date Rituals sends; without that date,
+  the token is used until Rituals refuses it. Logins the integration decides
+  itself are at least 2 minutes apart.
+- It presents itself with its own name (`gladys-rituals`), not as the Rituals
+  app, and sends no key of the app.
+- **Refused password**: when Rituals refuses the e-mail or the password,
+  nothing is tried again until you change them or the **Test the connection**
+  button succeeds (one login per click, 30 seconds apart after a refusal). The
+  refusal is remembered across restarts by a marker that cannot give the
+  password back.
+- **Too many login attempts**: Rituals then locks the logins for a while (it
+  says how long); no login is tried before the end, even after a restart.
+- **429** (too many requests) or **5xx** on a read: reads and commands pause
+  as long as Rituals asks (Retry-After), otherwise 1 minute, doubled each
+  time, 6 hours at most; the pause survives a restart. A turn off is not
+  paused. A 5xx on a command concerns that diffuser only (no pause).
+- **Network errors, unreadable answers**: the reads wait longer each time
+  (never less than the interval). A 401 on a token Rituals just gave is not a refused password:
+  the reads are spaced out, doubled each time, up to one hour.
+- After a restart, the next read never comes sooner than the interval after
+  the last one, even if the clock of the machine moved.
 
-- **Test the weather provider** — performs a live request to Open-Meteo and
-  shows the current temperature and humidity under the button.
-- **Identify a device** — pick one of your devices in the list and it will
-  signal itself (the demo light "blinks" in the logs).
+## Commands
 
-## Scenes
+- **Turn on** and **intensity** wait their turn per diffuser (two at most
+  waiting) and are refused, with nothing sent, while Rituals asks to wait
+  (429), for a diffuser offline or unknown, or with a refused password. Once
+  sent, the integration reads the diffuser back: the state in Gladys changes
+  only when Rituals shows the value asked. Otherwise ("not applied yet", or no
+  answer), Gladys keeps the previous state and the list is read again 5 and 20
+  seconds later.
+- **Turn off** is handled as a protective command. It does not wait for a read
+  in progress (a read silent for a second is cut, without counting as a
+  failure), for the 429 pause, for the spacing of the logins nor for other
+  commands; it logs in at once when no token is held; it cancels the turn on
+  and intensity commands still waiting for that diffuser; if a command was
+  already on its way, the turn off is sent again after it. It is kept in
+  `/data` and sent again every minute (three sends in all at most, within 30
+  minutes), until a read made after it shows the diffuser off, unless a newer
+  command for that diffuser left meanwhile. After a restart, a kept turn off is
+  sent as soon as the configuration is read, before the first read.
 
-The integration adds its own cards to the scene editor (Gladys 5.1 or
-later), under the **Integrations** category:
+  A turn off is refused only when: no account is configured (or the e-mail is
+  missing or invalid); Rituals refused the e-mail or the password (until they
+  change or the test button succeeds); Rituals locked the logins and no token
+  is held (it is then kept and sent again); the diffuser was never seen on the
+  account (neither in a read nor in `/data`); Rituals answers that the
+  diffuser is not linked to the account; Rituals answers the turn off with
+  another error 4xx (it is then kept and sent again).
 
-- **Motion detected** (trigger) — starts the scene when a demo motion sensor
-  sees something move. Optionally pick the sensor and what moved (person,
-  animal); left empty, any detection matches. The following actions can
-  read what moved with `{{triggerEvent.data.target}}`.
-- **Identify a device** (action) — makes the chosen device signal itself.
-  It returns whether the device could signal itself, so the following
-  actions can depend on it.
+The diffuser's own schedules (set in the Rituals app) keep working and may turn
+it on or off by themselves.
 
-## Dashboard
+## Privacy and data
 
-Add the **Demo status** widget to a dashboard: it shows the live
-temperature of the weather station and the power of the office plug, the
-connection the plug currently uses (orange when degraded) and the observed
-location. Its **Identify the light** button makes the demo light signal
-itself.
+`/data/rituals-state.json` keeps: the time of the last read and of the last
+login, a pause or a lockout asked by Rituals, the marker of a refused login (8
+bits of a salted hash), a salted hash of the account, the diffusers seen
+(hublot, API hash, name) and the turns off still to confirm. Never the
+password, the e-mail nor the token. If the file cannot be read, it is not
+written over.
 
 ## Troubleshooting
 
-The integration logs everything it does: check the integration logs from the
-Gladys UI (or `docker logs` on the host) with `LOG_LEVEL=debug` for the full
-detail.
+- **"Rituals refused the e-mail or the password"**: check them in the Rituals
+  app, fix them in Gladys (the integration tries again at once) or click
+  **Test the connection**.
+- **"paused"**: Rituals asked to wait; the integration resumes by itself.
+- **A diffuser is missing**: it must be on the account and have a valid
+  identifier; the logs (`docker logs`) say when one is left out.
