@@ -110,6 +110,7 @@ export class RitualsApp {
     this.offTimer = undefined;
     this.configTimer = undefined;
     this.followTimers = [];
+    this.offFollowTimers = [];
     this.busy = undefined;
     this.readCtl = undefined;
     this.lifecycle = Promise.resolve();
@@ -207,6 +208,13 @@ export class RitualsApp {
           seq: this.seq,
           mono: undefined,
           fromData: true,
+          // A Retry-After of Rituals still running: the rest, capped.
+          ...(finite(value.waitUntil) && value.waitUntil > at
+            ? {
+                waitUntil: Math.min(value.waitUntil, at + this.t.pauseMax),
+                waitDue: mono + Math.min(value.waitUntil - at, this.t.pauseMax),
+              }
+            : {}),
         });
       }
     }
@@ -230,7 +238,7 @@ export class RitualsApp {
     for (const [hublot, value] of this.known) hubs[hublot] = value;
     const offs = {};
     for (const [hublot, off] of [...this.offs].slice(-LIMITS.offs)) {
-      offs[hublot] = { hash: off.hash, at: off.at, tries: off.tries };
+      offs[hublot] = { hash: off.hash, at: off.at, tries: off.tries, waitUntil: off.waitUntil };
     }
     const wait = (w) => (w ? { code: w.code, until: w.until, count: w.count } : undefined);
     return {
@@ -441,12 +449,18 @@ export class RitualsApp {
     this.stopped = true;
     this.running = false;
     this.clearReadTimer();
-    for (const timer of [this.offTimer, this.configTimer, ...this.followTimers]) {
+    for (const timer of [
+      this.offTimer,
+      this.configTimer,
+      ...this.followTimers,
+      ...this.offFollowTimers,
+    ]) {
       if (timer !== undefined) this.timers.clearTimeout(timer);
     }
     this.offTimer = undefined;
     this.configTimer = undefined;
     this.followTimers = [];
+    this.offFollowTimers = [];
     await this.saveState();
     if (this.busy) {
       let timer;
@@ -1205,6 +1219,16 @@ export class RitualsApp {
     }
     if (!session) throw this.fail(T.command.nothingSent('no_credentials'));
     if (this.refusedApplies()) throw this.fail(T.command.nothingSent('refused'));
+    const running = this.offs.get(hublot);
+    if (t.offRun && running) {
+      // A turn off of this diffuser is on its way: this one joins it (the
+      // confirmation then needs a read made after this click).
+      running.seq = seq;
+      running.mono = started;
+      const joined = await t.offRun;
+      if (joined.error) throw this.fail(joined.error);
+      return undefined;
+    }
     this.offs.delete(hublot);
     this.offs.set(hublot, { hash, at: this.now(), tries: 0, seq, mono: started });
     // Kept for a restart; the turn off never waits for the disk.
@@ -1212,7 +1236,13 @@ export class RitualsApp {
     t.offHash = hash;
     if (t.inflight !== undefined) t.resendOff = seq;
     this.cutFrozenRead();
-    const result = await this.sendOff(session, hublot, started);
+    t.offRun = this.sendOff(session, hublot, started);
+    let result;
+    try {
+      result = await t.offRun;
+    } finally {
+      t.offRun = undefined;
+    }
     this.armOffTimer();
     if (result.error) throw this.fail(result.error);
     return undefined;
@@ -1260,6 +1290,7 @@ export class RitualsApp {
           json: { [ATTRIBUTE.FAN]: '0' },
           timeout: () => Math.min(this.t.commandTimeout, left() - this.t.confirmMin),
           mayLogin: () => this.mayLogin('protective'),
+          protective: true,
           beforeSend: () => {
             leftAt = t.sentSeq;
             t.sentSeq = Math.max(t.sentSeq, off.seq);
@@ -1288,8 +1319,16 @@ export class RitualsApp {
           this.monotonic() - started < this.t.protectRetryBudget;
         if (!retry) {
           lastError.reached = reached;
-          // Never left, a login refused or locked, a 429: not a send.
-          if (reached && !LOGIN_CODES.has(code) && code !== 'rate_limited') off.tries += 1;
+          // Never left, a login refused or locked, a 429, a 401 on a token
+          // not validated again: not a send.
+          if (
+            reached &&
+            !LOGIN_CODES.has(code) &&
+            code !== 'rate_limited' &&
+            !(code === 'unauthorized' && !err.fresh)
+          ) {
+            off.tries += 1;
+          }
           break;
         }
       }
@@ -1297,8 +1336,15 @@ export class RitualsApp {
     if (lastError) {
       const code = lastError instanceof RitualsError ? lastError.code : 'bad_response';
       if (lastError.reached && code === 'rate_limited') {
-        // The pause applies to the reads and the other commands, never to a turn off.
+        // The pause applies to the reads and the other commands; this turn
+        // off waits for the Retry-After itself (bounded), never longer.
         this.pauseFor(lastError);
+        const wait = Math.min(
+          Math.max((lastError.retryAfter ?? 0) * 1000, this.t.pauseMin),
+          this.t.pauseMax,
+        );
+        off.waitUntil = this.now() + wait;
+        off.waitDue = this.monotonic() + wait;
       }
       if (code === 'not_linked') {
         // Not this account's diffuser any more: sending again cannot help.
@@ -1323,8 +1369,10 @@ export class RitualsApp {
       this.logger.warn(`rituals: turn off of ${hublot} sent without confirmation (${code})`);
       this.saveState();
       // A quick read (5 s, 20 s) confirms it before a resend could undo a
-      // turn on made meanwhile from the Rituals app.
+      // turn on made meanwhile from the Rituals app; this diffuser alone is
+      // read on the protective path, even during a pause.
       this.followUp();
+      this.offFollow(hublot);
       return {};
     }
     this.saveState();
@@ -1374,6 +1422,8 @@ export class RitualsApp {
         this.logger.warn(`rituals: turn off of ${hublot} given up (not confirmed)`);
         continue;
       }
+      // After a 429 on this turn off: not before its Retry-After.
+      if (off.waitDue !== undefined && this.monotonic() < off.waitDue) continue;
       jobs.push(this.resendOff(session, hublot, off, check));
     }
     if (changed) await this.saveState();
@@ -1381,32 +1431,48 @@ export class RitualsApp {
   }
 
   async resendOff(session, hublot, off, check) {
-    const started = this.monotonic();
-    if (check) {
-      try {
-        const data = await session.client.call(`account/hubs/${off.hash}`, {
-          timeout: this.t.readTimeout,
-          mayLogin: () => this.mayLogin('protective'),
-        });
-        const hub = parseHub(data);
-        if (!hub.reason && hub.hublot === hublot && hub.on === false) {
-          if (this.offs.get(hublot) === off) {
-            this.offs.delete(hublot);
-            this.logger.info(`rituals: turn off of ${hublot} confirmed`);
-            await this.saveState();
-          }
-          const known = this.hubs.get(hublot);
-          if (known) this.hubs.set(hublot, { ...known, ...hub, readAt: started });
-          await this.publish(hubStates(this.gladys, hub));
-          return;
-        }
-      } catch (err) {
-        this.logger.info(
-          `rituals: ${hublot} not read before the turn off (${err?.code ?? err?.name})`,
-        );
-      }
-    }
+    if (check && (await this.checkOff(session, hublot, off))) return;
     await this.sendOff(session, hublot, this.monotonic(), { confirm: check });
+  }
+
+  /** Reads this diffuser alone (protective path): true when it shows the turn off done. */
+  async checkOff(session, hublot, off) {
+    const started = this.monotonic();
+    try {
+      const data = await session.client.call(`account/hubs/${off.hash}`, {
+        timeout: this.t.readTimeout,
+        mayLogin: () => this.mayLogin('protective'),
+        protective: true,
+      });
+      const hub = parseHub(data);
+      if (hub.reason || hub.hublot !== hublot || hub.on !== false) return false;
+      if (this.offs.get(hublot) === off) {
+        this.offs.delete(hublot);
+        this.logger.info(`rituals: turn off of ${hublot} confirmed`);
+        await this.saveState();
+      }
+      const known = this.hubs.get(hublot);
+      if (known) this.hubs.set(hublot, { ...known, ...hub, readAt: started });
+      await this.publish(hubStates(this.gladys, hub));
+      return true;
+    } catch (err) {
+      this.logger.info(`rituals: ${hublot} not read for its turn off (${err?.code ?? err?.name})`);
+      return false;
+    }
+  }
+
+  /** Quick reads (5 s, 20 s) of a diffuser whose turn off left without an answer. */
+  offFollow(hublot) {
+    for (const delay of this.t.followUps) {
+      const timer = this.timers.setTimeout(() => {
+        this.offFollowTimers = this.offFollowTimers.filter((x) => x !== timer);
+        const off = this.offs.get(hublot);
+        if (off && this.session && this.running) {
+          this.checkOff(this.session, hublot, off).catch(() => {});
+        }
+      }, delay);
+      this.offFollowTimers.push(timer);
+    }
   }
 
   // --- "Test the connection" ------------------------------------------------------

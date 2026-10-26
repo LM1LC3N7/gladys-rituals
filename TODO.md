@@ -86,6 +86,13 @@ PythonRitualsGenie`, no key, no client id, no signature. This integration
   turn off clicked before getConfig kept; the time of every read written to
   /data; the room name no longer in /data; an empty `raw` cartridge is
   unknown.
+- **Review r2** (2026-10-26): a turn off answered 401 logs in again once
+  per token (protective path) and a 401 on a token not validated again does
+  not count as a send; after a 429 a turn off waits its Retry-After
+  (persisted, bounded, within offKeep); a turn off of a diffuser whose turn
+  off is in flight joins it; an unanswered turn off reads that diffuser
+  alone at 5 s / 20 s, even during a pause. The CREDENTIALS pattern of the
+  login (400/422) stays broad: to check with real answers (milestone 2).
 - **Turn off = protective** (fiche): out of the queue, cancels the waiting
   commands at once, logs in when needed (not when refused or locked), cuts a
   read silent for 1 s (not a failure), retried within 250 ms when it never

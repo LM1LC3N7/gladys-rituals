@@ -47,8 +47,10 @@ value until it is back.
   before it expires, comparing with the date Rituals sends; without that date,
   the token is used until Rituals refuses it. Logins for reads and for
   turn on or intensity commands are at least 2 minutes apart (a turn off logs
-  in at once). A 401 on a command of one diffuser, with a token the account
-  list accepts, refuses that command and keeps the token. A 400 or 422 of the
+  in at once). A 401 on a turn on or intensity command of one diffuser, with
+  a token the account list accepts, refuses that command and keeps the token
+  (a token revoked meanwhile is renewed at the next read). A turn off refused
+  that way logs in again once for that token and is sent again. A 400 or 422 of the
   login without a message about the credentials is a wrong answer, retried
   later, not a refused password.
 - It presents itself with its own name (`gladys-rituals`), not as the Rituals
@@ -88,9 +90,12 @@ value until it is back.
   `/data` and tried again every minute for 30 minutes, until a read made
   after it shows the diffuser off, unless a newer command for that diffuser
   left meanwhile. Only the sends that reached Rituals count, three at most: a
-  try that never left (network down, logins locked, 429) does not count, and
-  the turn off leaves as soon as it can. A turn off sent without an answer is
-  read back 5 and 20 seconds later; a diffuser turned on again from the
+  try that never left (network down, logins locked, 429, a 401 before the
+  token was renewed) does not count, and the turn off leaves as soon as it
+  can; after a 429, not before the Retry-After of Rituals (within the 30
+  minutes). A second turn off of a diffuser whose turn off is on its way joins
+  it. A turn off sent without an answer is read back 5 and 20 seconds later
+  (that diffuser alone, even during a pause); a diffuser turned on again from the
   Rituals app before that confirmation may be turned off again by a resend.
   After a restart, a kept turn off is sent as soon as the configuration is
   read, before the first read; one clicked while Gladys has not given the

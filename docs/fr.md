@@ -54,7 +54,10 @@ aucune nouvelle valeur jusqu’à son retour.
   aussitôt). Un 401 sur une commande d’un diffuseur, avec un jeton que la
   liste du compte accepte, refuse cette commande et garde le jeton. Un 400 ou
   422 de la connexion sans message sur les identifiants est une réponse
-  inattendue, réessayée plus tard, pas un mot de passe refusé.
+  inattendue, réessayée plus tard, pas un mot de passe refusé. Une extinction
+  refusée par un 401 se reconnecte une fois pour ce jeton et repart ; pour
+  l’allumage et l’intensité, un jeton révoqué est renouvelé à la lecture
+  suivante.
 - Elle se présente sous son propre nom (`gladys-rituals`), pas comme
   l’application Rituals, et n’envoie aucune clé de l’application.
 - **Mot de passe refusé** : quand Rituals refuse l’e-mail ou le mot de passe,
@@ -96,9 +99,12 @@ aucune nouvelle valeur jusqu’à son retour.
   minute pendant 30 minutes, jusqu’à ce qu’une lecture faite après elle montre
   le diffuseur éteint, sauf si une commande plus récente pour ce diffuseur est
   partie entre-temps. Seuls les envois arrivés chez Rituals comptent, trois au
-  plus : un essai jamais parti (réseau coupé, connexions bloquées, 429) ne
-  compte pas, et l’extinction part dès qu’elle le peut. Une extinction partie
-  sans réponse est relue 5 et 20 secondes plus tard ; un diffuseur rallumé
+  plus : un essai jamais parti (réseau coupé, connexions bloquées, 429, 401
+  avant le renouvellement du jeton) ne compte pas, et l’extinction part dès
+  qu’elle le peut ; après un 429, pas avant le Retry-After de Rituals (dans
+  les 30 minutes). Une deuxième extinction d’un diffuseur dont l’extinction
+  est en route la rejoint. Une extinction partie sans réponse est relue 5 et
+  20 secondes plus tard (ce seul diffuseur, même pendant une pause) ; un diffuseur rallumé
   depuis l’application Rituals avant cette confirmation peut être réteint par
   un renvoi. Après un redémarrage, une extinction gardée part dès que la
   configuration est lue, avant la première lecture ; une extinction cliquée

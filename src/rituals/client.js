@@ -211,7 +211,10 @@ export class RitualsClient {
    * one retry. A 401 on a token just obtained, or about a diffuser not
    * linked: `unauthorized` / `not_linked`, never a refused password.
    */
-  async call(path, { method = 'GET', json, timeout, signal, beforeSend, onActivity, mayLogin }) {
+  async call(
+    path,
+    { method = 'GET', json, timeout, signal, beforeSend, onActivity, mayLogin, protective = false },
+  ) {
     // `timeout`: ms, or a function giving the ms left (a command shares one budget).
     const ms = () => (typeof timeout === 'function' ? Math.max(1, timeout()) : timeout);
     // A login already running (started by a read) is joined within this call's own budget.
@@ -225,7 +228,16 @@ export class RitualsClient {
       ]).finally(() => clearTimeout(timer));
     };
     const send = (fresh) =>
-      this.send(path, { method, json, timeout: ms(), signal, beforeSend, onActivity, fresh });
+      this.send(path, {
+        method,
+        json,
+        timeout: ms(),
+        signal,
+        beforeSend,
+        onActivity,
+        fresh,
+        protective,
+      });
     let fresh = false;
     if (!this.hasToken(this.monotonic())) {
       await mayLogin();
@@ -240,17 +252,22 @@ export class RitualsClient {
     this.forgetToken();
     await mayLogin();
     await login(ms());
+    // One forced login per token for the turns off: a diffuser refusing a
+    // fresh token too is that diffuser's 401, not the token's.
+    if (protective) this.forcedToken = this.token;
     try {
       return await send(true);
     } catch (err) {
       if (err instanceof RitualsError && err.code === 'retry_login') {
-        throw new RitualsError('unauthorized', { status: 401, sent: true });
+        throw Object.assign(new RitualsError('unauthorized', { status: 401, sent: true }), {
+          fresh: true,
+        });
       }
       throw err;
     }
   }
 
-  async send(path, { method, json, timeout, signal, beforeSend, onActivity, fresh }) {
+  async send(path, { method, json, timeout, signal, beforeSend, onActivity, fresh, protective }) {
     const token = this.token;
     const { status, headers, body } = await this.transport({
       method,
@@ -269,12 +286,18 @@ export class RitualsClient {
       }
       // Fresh, or accepted by the last read of the list while this diffuser
       // refuses it: the token is kept (a 401 of one diffuser is not the account's).
+      // A turn off logs in again once per token (the token may be revoked
+      // although the list accepted it).
       if (
         fresh ||
         token !== this.token ||
-        (path !== 'account/hubs' && token === this.acceptedToken)
+        (path !== 'account/hubs' &&
+          (protective ? token === this.forcedToken : token === this.acceptedToken))
       ) {
-        throw new RitualsError('unauthorized', { status, sent: true });
+        const error = new RitualsError('unauthorized', { status, sent: true });
+        // `fresh`: refused although just obtained or validated again.
+        error.fresh = fresh || token === this.forcedToken;
+        throw error;
       }
       throw new RitualsError('retry_login', { status, sent: true });
     }
