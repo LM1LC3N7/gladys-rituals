@@ -42,7 +42,7 @@ import {
 import { T, age } from './i18n.js';
 import { RitualsClient } from './rituals/client.js';
 import { RitualsError, httpTransport } from './rituals/http.js';
-import { HASH, HUBLOT, SENSOR_READERS, cleanText, parseHub, parseHubs } from './rituals/model.js';
+import { HASH, HUBLOT, SENSOR_READERS, parseHub, parseHubs } from './rituals/model.js';
 import { createFileStore } from './store.js';
 
 const defaultTimers = { setTimeout, clearTimeout };
@@ -180,7 +180,7 @@ export class RitualsApp {
         typeof value.hash === 'string' &&
         HASH.test(value.hash)
       ) {
-        this.known.set(hublot, { hash: value.hash, name: cleanText(value.name) });
+        this.known.set(hublot, { hash: value.hash });
       }
     }
     this.known = new Map([...this.known].slice(-2 * LIMITS.hubs));
@@ -367,17 +367,20 @@ export class RitualsApp {
     const changed = first || key !== this.sessionKey;
     if (changed) {
       this.sessionKey = key;
-      this.session = next.problem
-        ? undefined
-        : {
-            client: new RitualsClient({
-              email: next.email,
-              password: next.password,
-              transport: this.transport,
-              monotonic: this.monotonic,
-              onLogin: (result) => this.loggedIn(result),
-            }),
-          };
+      const session = next.problem ? undefined : {};
+      if (session) {
+        // A login of a replaced client (other credentials since) concerns nobody now.
+        session.client = new RitualsClient({
+          email: next.email,
+          password: next.password,
+          transport: this.transport,
+          monotonic: this.monotonic,
+          onLogin: (result) => {
+            if (this.session === session) this.loggedIn(result, next.password);
+          },
+        });
+      }
+      this.session = session;
       this.account = next.problem ? '' : accountOf(this.salt, next.email);
       if (this.account !== '' && this.account !== this.keptAccount) {
         // Another account: what was kept for the previous one does not apply.
@@ -427,6 +430,7 @@ export class RitualsApp {
     if (first && this.offs.size > 0) {
       // Kept turns off leave before anything else, without a read first.
       await this.resendOffs({ check: false });
+      this.armOffTimer();
     }
     if (changed || next.pollInterval !== previous.pollInterval) {
       this.schedule();
@@ -508,7 +512,7 @@ export class RitualsApp {
     if (locked > 0) {
       throw new RitualsError('locked', { retryAfter: Math.ceil(locked / 1000) });
     }
-    if (kind === 'auto' && this.lastLoginMono !== undefined) {
+    if ((kind === 'auto' || kind === 'click') && this.lastLoginMono !== undefined) {
       const left = this.lastLoginMono + this.t.loginGap - mono;
       if (left > 0) throw new RitualsError('login_wait', { retryAfter: Math.ceil(left / 1000) });
     }
@@ -522,7 +526,7 @@ export class RitualsApp {
   }
 
   /** Every login ends here: a refusal or a lockout is kept in /data. */
-  loggedIn({ ok, error }) {
+  loggedIn({ ok, error }, password = this.config.password) {
     if (ok) {
       this.lastLoginFailedMono = undefined;
       if (this.refused) {
@@ -534,7 +538,7 @@ export class RitualsApp {
     }
     this.lastLoginFailedMono = this.monotonic();
     if (error?.code === 'refused') {
-      this.refused = { account: this.account, tag: tagOf(this.salt, this.config.password) };
+      this.refused = { account: this.account, tag: tagOf(this.salt, password) };
       this.clearReadTimer();
       this.logger.warn('rituals: Rituals refused the e-mail or the password');
       this.saveState();
@@ -752,9 +756,9 @@ export class RitualsApp {
       if (previous && previous.hash !== hub.hash) {
         this.logger.info(`rituals: diffuser ${hub.hublot} has a new API hash`);
       }
-      if (!previous || previous.hash !== hub.hash || previous.name !== hub.name) {
+      if (!previous || previous.hash !== hub.hash) {
         this.known.delete(hub.hublot);
-        this.known.set(hub.hublot, { hash: hub.hash, name: hub.name });
+        this.known.set(hub.hublot, { hash: hub.hash });
         knownChanged = true;
       }
       this.hubs.set(hub.hublot, { ...hub, readAt: started });
@@ -1192,6 +1196,13 @@ export class RitualsApp {
     const hash = this.hubs.get(hublot)?.hash ?? this.known.get(hublot)?.hash;
     if (!hash) throw this.fail(T.command.unknown);
     const session = this.session;
+    if (!session && !this.started) {
+      // The configuration is not read yet (Gladys starting): kept, sent once it is.
+      this.offs.delete(hublot);
+      this.offs.set(hublot, { hash, at: this.now(), tries: 0, seq, mono: started });
+      this.saveState();
+      throw this.fail(T.command.offWaitConfig);
+    }
     if (!session) throw this.fail(T.command.nothingSent('no_credentials'));
     if (this.refusedApplies()) throw this.fail(T.command.nothingSent('refused'));
     this.offs.delete(hublot);
@@ -1235,11 +1246,10 @@ export class RitualsApp {
    * Rituals refused it, `{}` otherwise; the turn off stays kept until a read
    * shows the diffuser off.
    */
-  async sendOff(session, hublot, started, { counted = true, confirm = true } = {}) {
+  async sendOff(session, hublot, started, { confirm = true } = {}) {
     const off = this.offs.get(hublot);
     if (!off) return {};
     const t = this.target(hublot);
-    if (counted) off.tries += 1;
     const left = () => this.t.ackBudget - (this.monotonic() - started);
     let lastError;
     for (let attempt = 1; ; attempt += 1) {
@@ -1256,6 +1266,8 @@ export class RitualsApp {
           },
         });
         lastError = undefined;
+        // Only a send that reached Rituals counts among the offTries.
+        off.tries += 1;
         break;
       } catch (err) {
         lastError = err;
@@ -1276,6 +1288,8 @@ export class RitualsApp {
           this.monotonic() - started < this.t.protectRetryBudget;
         if (!retry) {
           lastError.reached = reached;
+          // Never left, a login refused or locked, a 429: not a send.
+          if (reached && !LOGIN_CODES.has(code) && code !== 'rate_limited') off.tries += 1;
           break;
         }
       }
@@ -1292,6 +1306,10 @@ export class RitualsApp {
         this.saveState();
         return { error: T.command.rejected(code) };
       }
+      if (code === 'refused') {
+        this.saveState();
+        return { error: T.command.nothingSent(code) };
+      }
       if (!lastError.reached || LOGIN_CODES.has(code) || code === 'rate_limited') {
         this.logger.warn(`rituals: turn off of ${hublot} not applied (${code}), kept`);
         this.saveState();
@@ -1304,6 +1322,9 @@ export class RitualsApp {
       }
       this.logger.warn(`rituals: turn off of ${hublot} sent without confirmation (${code})`);
       this.saveState();
+      // A quick read (5 s, 20 s) confirms it before a resend could undo a
+      // turn on made meanwhile from the Rituals app.
+      this.followUp();
       return {};
     }
     this.saveState();

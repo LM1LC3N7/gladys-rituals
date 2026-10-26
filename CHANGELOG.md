@@ -19,8 +19,10 @@ the notes of the version's GitHub Release.
 - Commands confirmed by a read back of the diffuser; follow-up reads 5 and 20
   seconds later when Rituals does not show the value yet.
 - Turning off is a protective command: never paused, never queued, logs in
-  when needed, cancels the commands waiting, kept in /data and sent again
-  until a read shows the diffuser off.
+  when needed, cancels the commands waiting, kept in /data and tried again
+  for 30 minutes (three sends that reached Rituals at most) until a read
+  shows the diffuser off; a turn off clicked before the configuration is read
+  is kept too.
 - Logins rationed, a refused password kept until it changes or the test
   button succeeds, a lockout and a 429 pause kept across restarts.
 - A "Test the connection" button.

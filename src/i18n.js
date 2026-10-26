@@ -146,6 +146,10 @@ export const T = {
           ? `Refusée par Rituals : ${reasonOf(code).fr}.`
           : `Refused by Rituals: ${reasonOf(code).en}.`,
       ),
+    offWaitConfig: {
+      en: 'Turn off kept: it leaves as soon as the configuration is read from Gladys.',
+      fr: 'Extinction gardée : elle partira dès la lecture de la configuration depuis Gladys.',
+    },
     offKept: (code) =>
       both((l) =>
         l === 'fr'

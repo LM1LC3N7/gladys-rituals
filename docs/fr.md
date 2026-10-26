@@ -49,8 +49,12 @@ aucune nouvelle valeur jusqu’à son retour.
   donne Rituals (valable environ une heure) en mémoire seulement. Elle le
   renouvelle une minute avant son expiration, comparée à la date qu’envoie
   Rituals ; sans cette date, le jeton sert jusqu’à ce que Rituals le refuse.
-  Les connexions que l’intégration décide elle-même sont espacées d’au moins
-  2 minutes.
+  Les connexions pour les lectures et pour les commandes d’allumage ou
+  d’intensité sont espacées d’au moins 2 minutes (une extinction se connecte
+  aussitôt). Un 401 sur une commande d’un diffuseur, avec un jeton que la
+  liste du compte accepte, refuse cette commande et garde le jeton. Un 400 ou
+  422 de la connexion sans message sur les identifiants est une réponse
+  inattendue, réessayée plus tard, pas un mot de passe refusé.
 - Elle se présente sous son propre nom (`gladys-rituals`), pas comme
   l’application Rituals, et n’envoie aucune clé de l’application.
 - **Mot de passe refusé** : quand Rituals refuse l’e-mail ou le mot de passe,
@@ -88,14 +92,21 @@ aucune nouvelle valeur jusqu’à son retour.
   les autres commandes ; elle se connecte aussitôt si aucun jeton n’est
   détenu ; elle annule les commandes d’allumage et d’intensité encore en
   attente pour ce diffuseur ; si une commande était déjà partie, l’extinction
-  est renvoyée après elle. Elle est gardée dans `/data` et renvoyée chaque
-  minute (trois envois en tout au plus, en 30 minutes au plus), jusqu’à ce qu’une
-  lecture faite après elle montre le diffuseur éteint, sauf si une commande
-  plus récente pour ce diffuseur est partie entre-temps. Après un redémarrage,
-  une extinction gardée part dès que la configuration est lue, avant la
-  première lecture.
+  est renvoyée après elle. Elle est gardée dans `/data` et réessayée chaque
+  minute pendant 30 minutes, jusqu’à ce qu’une lecture faite après elle montre
+  le diffuseur éteint, sauf si une commande plus récente pour ce diffuseur est
+  partie entre-temps. Seuls les envois arrivés chez Rituals comptent, trois au
+  plus : un essai jamais parti (réseau coupé, connexions bloquées, 429) ne
+  compte pas, et l’extinction part dès qu’elle le peut. Une extinction partie
+  sans réponse est relue 5 et 20 secondes plus tard ; un diffuseur rallumé
+  depuis l’application Rituals avant cette confirmation peut être réteint par
+  un renvoi. Après un redémarrage, une extinction gardée part dès que la
+  configuration est lue, avant la première lecture ; une extinction cliquée
+  avant que Gladys ait donné la configuration est gardée et part à ce
+  moment.
 
-  Une extinction n’est refusée que si : aucun compte n’est configuré (ou
+  Une extinction n’est refusée que si : aucun compte n’est configuré une fois
+  la configuration lue (ou
   l’e-mail manque ou n’est pas valide) ; Rituals a refusé l’e-mail ou le mot de
   passe (jusqu’à leur changement ou un succès du bouton de test) ; Rituals
   bloque les connexions et aucun jeton n’est détenu (elle est alors gardée et
@@ -112,7 +123,7 @@ fonctionner et peuvent l’allumer ou l’éteindre d’eux-mêmes.
 `/data/rituals-state.json` garde : l’heure de la dernière lecture et de la
 dernière connexion, une pause ou un blocage demandé par Rituals, le marqueur
 d’un refus de connexion (8 bits d’une empreinte salée), une empreinte salée du
-compte, les diffuseurs vus (hublot, hash de l’API, nom) et les extinctions
+compte, les diffuseurs vus (hublot, hash de l’API) et les extinctions
 encore à confirmer. Ni le mot de passe, ni l’e-mail, ni le jeton. Si le
 fichier est illisible, il n’est pas écrasé.
 

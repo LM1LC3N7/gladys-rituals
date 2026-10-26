@@ -7,8 +7,9 @@ e-mail and the password of the user's Rituals account.
 - One device per diffuser: diffusing (on/off), perfume intensity (1 to 3),
   perfume level, perfume name, Wi-Fi signal, and the battery of the portable
   model.
-- Turning off is never blocked by a pause, a queue or a read in progress, and
-  is sent again until a read shows the diffuser off.
+- Turning off is never blocked by a pause, a queue or a read in progress; it
+  is kept and tried again (30 minutes, three sends that reached Rituals at
+  most) until a read shows the diffuser off.
 - Polite with the Rituals cloud: one request per read of the list (every 5
   minutes by default), the sensors of one diffuser at most every 30 minutes,
   logins rationed, a refused password never tried again by itself.

@@ -76,6 +76,16 @@ PythonRitualsGenie`, no key, no client id, no signature. This integration
 - **Pauses**: 429 (any path) and 5xx of a read: Retry-After or 1 min doubled,
   6 h max, kept in /data; commands refused during it except turn off. A 5xx
   on a command or a sensor concerns that diffuser only (no pause).
+- **Review r1** (2026-10-26): only the sends that reached Rituals count
+  among the 3 (network, lock, 429 do not), the turn off kept until its 30
+  min end and the retry timer armed at start too; a 401 of one diffuser with
+  a token the list accepted keeps the token (no login per command); click
+  logins spaced 2 min like the automatic ones; a 400/422 of the login is
+  refused only with a credentials message; a login of a replaced client is
+  ignored; no socket cap; an unanswered turn off read back at 5 s / 20 s; a
+  turn off clicked before getConfig kept; the time of every read written to
+  /data; the room name no longer in /data; an empty `raw` cartridge is
+  unknown.
 - **Turn off = protective** (fiche): out of the queue, cancels the waiting
   commands at once, logs in when needed (not when refused or locked), cuts a
   read silent for 1 s (not a failure), retried within 250 ms when it never

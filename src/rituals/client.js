@@ -17,6 +17,12 @@ import { TIMINGS, USER_AGENT } from '../constants.js';
 import { RitualsError } from './http.js';
 
 const LOGIN_FAILURE_STATUSES = new Set([400, 401, 422]);
+/**
+ * A 400/401/422 of the login is a refused password only when its message
+ * says so: otherwise (a field missing, an API change) it is a wrong answer.
+ */
+const CREDENTIALS =
+  /password|credential|invalid e-?mail|unknown e-?mail|wrong|incorrect|not found|no account|unauthori[sz]ed/i;
 const NOT_TOKEN_RELATED = ['not linked', 'not your'];
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u001f\u007f]/;
@@ -91,6 +97,8 @@ export class RitualsClient {
     /** Monotonic time from which the token is renewed; undefined: used until refused. */
     this.tokenDue = undefined;
     this.loginRun = undefined;
+    /** The token the last read of the account list accepted. */
+    this.acceptedToken = undefined;
   }
 
   /** Whether a token is held and not due for renewal at `mono`. */
@@ -155,7 +163,11 @@ export class RitualsClient {
         : new RitualsError('locked', { status, retryAfter: seconds, sent: true });
     };
     if (LOGIN_FAILURE_STATUSES.has(status)) {
-      throw refusal(errorMessage(body));
+      const message = errorMessage(body);
+      if (lockoutSeconds(message) !== undefined || CREDENTIALS.test(message ?? '')) {
+        throw refusal(message);
+      }
+      throw new RitualsError('http', { status, sent: true });
     }
     const failure = this.statusError(status, headers, body);
     if (failure) throw failure;
@@ -202,12 +214,22 @@ export class RitualsClient {
   async call(path, { method = 'GET', json, timeout, signal, beforeSend, onActivity, mayLogin }) {
     // `timeout`: ms, or a function giving the ms left (a command shares one budget).
     const ms = () => (typeof timeout === 'function' ? Math.max(1, timeout()) : timeout);
+    // A login already running (started by a read) is joined within this call's own budget.
+    const login = (wait) => {
+      let timer;
+      return Promise.race([
+        this.login({ timeout: wait, signal }),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new RitualsError('timeout')), wait);
+        }),
+      ]).finally(() => clearTimeout(timer));
+    };
     const send = (fresh) =>
       this.send(path, { method, json, timeout: ms(), signal, beforeSend, onActivity, fresh });
     let fresh = false;
     if (!this.hasToken(this.monotonic())) {
       await mayLogin();
-      await this.login({ timeout: ms(), signal });
+      await login(ms());
       fresh = true;
     }
     try {
@@ -217,7 +239,7 @@ export class RitualsClient {
     }
     this.forgetToken();
     await mayLogin();
-    await this.login({ timeout: ms(), signal });
+    await login(ms());
     try {
       return await send(true);
     } catch (err) {
@@ -245,13 +267,20 @@ export class RitualsClient {
       if (NOT_TOKEN_RELATED.some((known) => message.includes(known))) {
         throw new RitualsError('not_linked', { status, sent: true });
       }
-      if (fresh || token !== this.token) {
+      // Fresh, or accepted by the last read of the list while this diffuser
+      // refuses it: the token is kept (a 401 of one diffuser is not the account's).
+      if (
+        fresh ||
+        token !== this.token ||
+        (path !== 'account/hubs' && token === this.acceptedToken)
+      ) {
         throw new RitualsError('unauthorized', { status, sent: true });
       }
       throw new RitualsError('retry_login', { status, sent: true });
     }
     const failure = this.statusError(status, headers, body);
     if (failure) throw failure;
+    if (path === 'account/hubs') this.acceptedToken = token;
     const type = String(headers?.['content-type'] ?? '');
     if (body.length === 0 || body.toString('utf8').trim() === '' || !type.includes('json')) {
       return null;

@@ -42,7 +42,9 @@ export function httpTransport({ base = API_BASE } = {}) {
     throw new Error('The Rituals API is only reached over HTTPS');
   }
   const lib = root.protocol === 'https:' ? https : http;
-  const agent = new lib.Agent({ keepAlive: false, maxSockets: 4 });
+  // No socket cap: a turn off never waits for a socket behind reads or commands
+  // (still one request per connection).
+  const agent = new lib.Agent({ keepAlive: false });
 
   /**
    * `{ method, path, headers, json, timeout, maxBytes, signal, beforeSend, onActivity }`

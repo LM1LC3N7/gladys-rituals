@@ -3,7 +3,7 @@
 // keeps no secret (never the password, the e-mail nor the token): the time of
 // the last read and of the last login (a restart never reads nor logs in
 // sooner), a pause asked by Rituals, the marker of a refused login, the
-// diffusers seen (hublot, hash, name) and the turns off still to confirm.
+// diffusers seen (hublot, hash) and the turns off still to confirm.
 //
 // `load()` -> the object, `null` when the file does not exist; it THROWS when
 // the file exists but cannot be read or parsed: unreadable is not empty.

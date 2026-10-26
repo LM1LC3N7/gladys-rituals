@@ -45,8 +45,12 @@ value until it is back.
 - The integration logs in with the e-mail and the password and keeps the token
   Rituals gives (valid about an hour) in memory only. It renews it a minute
   before it expires, comparing with the date Rituals sends; without that date,
-  the token is used until Rituals refuses it. Logins the integration decides
-  itself are at least 2 minutes apart.
+  the token is used until Rituals refuses it. Logins for reads and for
+  turn on or intensity commands are at least 2 minutes apart (a turn off logs
+  in at once). A 401 on a command of one diffuser, with a token the account
+  list accepts, refuses that command and keeps the token. A 400 or 422 of the
+  login without a message about the credentials is a wrong answer, retried
+  later, not a refused password.
 - It presents itself with its own name (`gladys-rituals`), not as the Rituals
   app, and sends no key of the app.
 - **Refused password**: when Rituals refuses the e-mail or the password,
@@ -81,12 +85,19 @@ value until it is back.
   commands; it logs in at once when no token is held; it cancels the turn on
   and intensity commands still waiting for that diffuser; if a command was
   already on its way, the turn off is sent again after it. It is kept in
-  `/data` and sent again every minute (three sends in all at most, within 30
-  minutes), until a read made after it shows the diffuser off, unless a newer
-  command for that diffuser left meanwhile. After a restart, a kept turn off is
-  sent as soon as the configuration is read, before the first read.
+  `/data` and tried again every minute for 30 minutes, until a read made
+  after it shows the diffuser off, unless a newer command for that diffuser
+  left meanwhile. Only the sends that reached Rituals count, three at most: a
+  try that never left (network down, logins locked, 429) does not count, and
+  the turn off leaves as soon as it can. A turn off sent without an answer is
+  read back 5 and 20 seconds later; a diffuser turned on again from the
+  Rituals app before that confirmation may be turned off again by a resend.
+  After a restart, a kept turn off is sent as soon as the configuration is
+  read, before the first read; one clicked while Gladys has not given the
+  configuration yet is kept and sent then.
 
-  A turn off is refused only when: no account is configured (or the e-mail is
+  A turn off is refused only when: no account is configured once the
+  configuration is read (or the e-mail is
   missing or invalid); Rituals refused the e-mail or the password (until they
   change or the test button succeeds); Rituals locked the logins and no token
   is held (it is then kept and sent again); the diffuser was never seen on the
@@ -102,7 +113,7 @@ it on or off by themselves.
 `/data/rituals-state.json` keeps: the time of the last read and of the last
 login, a pause or a lockout asked by Rituals, the marker of a refused login (8
 bits of a salted hash), a salted hash of the account, the diffusers seen
-(hublot, API hash, name) and the turns off still to confirm. Never the
+(hublot, API hash) and the turns off still to confirm. Never the
 password, the e-mail nor the token. If the file cannot be read, it is not
 written over.
 

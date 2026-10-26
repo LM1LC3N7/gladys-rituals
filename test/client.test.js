@@ -157,8 +157,10 @@ test('login answers: token, refused (success false or 400/401/422), lockout, any
   const exp = Date.parse(date) / 1000 + 3600;
   for (const [answer, code] of [
     [{ body: { success: false, message: 'Wrong password' } }, 'refused'],
-    [{ status: 401, body: { message: 'Invalid' } }, 'refused'],
-    [{ status: 422, body: {} }, 'refused'],
+    [{ status: 401, body: { message: 'Invalid email or password' } }, 'refused'],
+    // A 400/422 without a credentials message is a wrong answer, not a refusal.
+    [{ status: 422, body: {} }, 'http'],
+    [{ status: 400, body: { message: 'Missing field "device"' } }, 'http'],
     [
       { body: { success: false, message: 'Too many login attempts. Try again in 1296 seconds.' } },
       'locked',
@@ -262,4 +264,54 @@ test('one login at a time: concurrent calls share it', async () => {
   release();
   await both;
   assert.equal(calls.filter((p) => p === 'account/token').length, 1);
+});
+
+test('turns off never wait for a socket: 6 requests in parallel all reach the server at once', async () => {
+  const pending = [];
+  const srv = await serve((req, res) => pending.push(res));
+  const transport = httpTransport({ base: srv.base });
+  const calls = Array.from({ length: 6 }, (_, i) =>
+    transport({
+      path: `hubs/${i}/attributes/fanc`,
+      method: 'POST',
+      json: { fanc: '0' },
+      timeout: 2000,
+    }),
+  );
+  const deadline = Date.now() + 1000;
+  while (pending.length < 6 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
+  assert.equal(pending.length, 6, 'all six on the wire before any answer');
+  for (const res of pending) res.writeHead(200, { 'content-type': 'application/json' }).end('{}');
+  await Promise.all(calls);
+  await srv.close();
+});
+
+test('a 401 of one diffuser on a token the list accepted keeps the token: no new login', async () => {
+  const ok = { body: { success: 'token-1' } };
+  const s = scripted([
+    ok,
+    { body: [] },
+    { status: 401, body: { message: 'Unauthorized' } },
+    { status: 401, body: { message: 'Unauthorized' } },
+  ]);
+  const c = client(s.transport);
+  const mayLogin = async () => {};
+  await c.call('account/hubs', { mayLogin });
+  await rejects(c.call('hubs/x/attributes/fanc', { method: 'POST', mayLogin }), 'unauthorized');
+  await rejects(c.call('hubs/x/attributes/fanc', { method: 'POST', mayLogin }), 'unauthorized');
+  assert.equal(s.calls.filter((call) => call.path === 'account/token').length, 1);
+  assert.equal(c.token, 'token-1');
+});
+
+test('a call joins a running login within its own budget', async () => {
+  const transport = (options) =>
+    options.path === 'account/token' ? new Promise(() => {}) : Promise.resolve({});
+  const c = client(transport);
+  c.login({ timeout: 10_000 });
+  const started = Date.now();
+  await rejects(
+    c.call('hubs/x/attributes/fanc', { timeout: 100, mayLogin: async () => {} }),
+    'timeout',
+  );
+  assert.ok(Date.now() - started < 1000);
 });

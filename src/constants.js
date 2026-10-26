@@ -63,8 +63,8 @@ export const TIMINGS = {
   offKeep: 30 * MINUTE,
   /** getConfig() failing at start: tried again this often. */
   configRetry: 15 * SECOND,
-  /** The time of the last read is written to /data at most this often. */
-  attemptSaveEvery: 5 * MINUTE,
+  /** The time of the last read is written to /data before every read (0: always). */
+  attemptSaveEvery: 0,
   /** stop(): the running read is awaited at most this long. */
   stopWait: 3 * SECOND,
 };

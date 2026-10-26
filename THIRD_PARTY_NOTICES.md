@@ -38,7 +38,9 @@ exactly as expected read as unknown (never 0), the token expiry compared with
 the Date header of Rituals (never the clock of Gladys), the Wi-Fi level as the
 0-5 bars of Gladys, logins rationed and a refused password kept until it
 changes, a pause on 429 kept across restarts, a turn off that is never
-blocked and is sent again until a read shows the diffuser off. The room size,
+blocked and is tried again (30 minutes, three sends at most) until a read
+shows the diffuser off. A 400/422 of the login counts as refused only with a
+message about the credentials. The room size,
 the standby LED, the firmware update and the hublot details of the library
 are not ported.
 

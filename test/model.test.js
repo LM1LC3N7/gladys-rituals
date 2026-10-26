@@ -116,3 +116,11 @@ test('battery: icon levels, charging, unknown icon', () => {
   assert.deepEqual(parseBattery({ id: 21 }), { charging: true });
   assert.equal(parseBattery({ icon: 'battery-unknown.png' }), undefined);
 });
+
+test('perfume: an empty raw is unknown, not "no cartridge"', () => {
+  assert.equal(parsePerfume({ title: 'x', raw: '' }), undefined);
+  assert.deepEqual(parsePerfume({ title: 'Sakura', raw: '', scentFound: true }), {
+    cartridge: true,
+    name: 'Sakura',
+  });
+});

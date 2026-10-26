@@ -193,7 +193,8 @@ export function parsePerfume(raw) {
   const r = readingOf(raw);
   if (!r) return undefined;
   let cartridge;
-  if (r.raw !== undefined) cartridge = r.raw !== '0' && r.raw !== '';
+  // An empty raw is unknown (not "no cartridge"): the other fields decide.
+  if (r.raw !== undefined && r.raw !== '') cartridge = r.raw !== '0';
   else if (r.id !== undefined) cartridge = r.id !== NO_CARTRIDGE_ID;
   else if (r.scentFound === true) cartridge = true;
   if (cartridge === undefined) return undefined;
